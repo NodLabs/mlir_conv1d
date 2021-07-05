@@ -36,6 +36,7 @@ def profile(args, obj_name):
     # Run objdump to get asm
     dumpfile = args.o + '.dump'
     f = open(dumpfile, 'w')
+    print(" ".join([objdump_binary] + objdump_flags + [obj_name]))
     subprocess.run([objdump_binary] + objdump_flags + [obj_name], stdout=f)
     f.close()
 
@@ -46,7 +47,7 @@ def profile(args, obj_name):
     captured = []
     capturing = False
     for line in data:
-        if '<conv1d_' in line:
+        if '<compute' in line:
             capturing = True
         if capturing:
             captured.append(line)
@@ -77,7 +78,7 @@ def profile(args, obj_name):
             count += 1
 
 def compile_and_run(args):
-    # Run mlir-opt
+    # Run mlir-opt.
     mlir_opt = os.path.join(args.m, 'bin/mlir-opt')
     mlir_file = args.o + '.mlir'
     mlir_outfile = args.o + 'mlir.out'
@@ -87,21 +88,33 @@ def compile_and_run(args):
     p.wait()
 
     f = open(mlir_outfile, 'w')
-    cat = subprocess.Popen(['cat'] + [os.path.basename(mlir_file)] , stdout=subprocess.PIPE)
-    sed = subprocess.Popen(['sed'] + ['s/${ITERS}/1000000/g'] , stdin=cat.stdout, stdout=subprocess.PIPE)
-    sed = subprocess.Popen(['sed'] + ['s/${M}/16/g'] , stdin=sed.stdout, stdout=subprocess.PIPE)
-    sed = subprocess.Popen(['sed'] + ['s/${N}/14/g'] , stdin=sed.stdout, stdout=subprocess.PIPE)
-    sed = subprocess.Popen(['sed'] + ['s/${K}/3/g'] , stdin=sed.stdout, stdout=subprocess.PIPE)
-    subprocess.run([mlir_opt] + mlir_opt_flags + ['-'], stdin=sed.stdout, stdout=f)
-    cat.stdout.close()
+    pcat = subprocess.Popen(['cat'] + [os.path.basename(mlir_file)] , stdout=subprocess.PIPE)
+    # For now values are hardcoded because tests are written with size knowledge.
+    # In the future we may want to expand this behavior.
+    psed = subprocess.Popen(['sed'] + ['s/${ITERS}/1000000/g'] , stdin=pcat.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${M}/16/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${N}/14/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${K}/3/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    subprocess.run([mlir_opt] + mlir_opt_flags + ['-'], stdin=psed.stdout, stdout=f)
+    pcat.stdout.close()
     f.close()
 
-    # Run mlir-cpu-runner
+    # Run mlir-cpu-runner and checks.
     mlir_cpu_runner = os.path.join(args.m, 'bin/mlir-cpu-runner')
+    filecheck = os.path.join(args.m, 'bin/FileCheck')
     obj_name = args.o + '.o'
-    subprocess.run([mlir_cpu_runner] + mlir_cpu_runner_run_flags(args.m, obj_name) + [mlir_outfile])
+    print(" ".join([mlir_cpu_runner] + mlir_cpu_runner_run_flags(args.m, obj_name) + [mlir_outfile]))
+    prun = subprocess.Popen([mlir_cpu_runner] + mlir_cpu_runner_run_flags(args.m, obj_name) + [mlir_outfile], stdout=subprocess.PIPE)
+    prun = subprocess.Popen([filecheck] + [os.path.basename(mlir_file)], stdin=prun.stdout)
+    prun.wait()
+    if prun.returncode != 0:
+      print("Result did not check")
+      exit(1)
+
     print(" ".join([mlir_cpu_runner] + mlir_cpu_runner_dump_object_flags(args.m, obj_name) + [mlir_outfile]))
-    subprocess.run([mlir_cpu_runner] + mlir_cpu_runner_dump_object_flags(args.m, obj_name) + [mlir_outfile])
+    p = subprocess.Popen([mlir_cpu_runner] + mlir_cpu_runner_dump_object_flags(args.m, obj_name) + [mlir_outfile])
+    p.wait()
+
     return obj_name
 
 def run(args):
