@@ -1,5 +1,16 @@
+// Size 18 * 3 -> 16
+// ~3.8 GFlops/s
+// Iterations:        100
+// Instructions:      16400
+// Total Cycles:      4973
+// Total uOps:        23000
+
+// Dispatch Width:    6
+// uOps Per Cycle:    4.62
+// IPC:               3.30
+// Block RThroughput: 49.5
 func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["noinline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c3 = constant ${K} : index
@@ -44,7 +55,7 @@ func @main() {
   %iters = constant ${ITERS} : index
 
   %mvinput = memref.alloc() : memref<vector<${M}xf32>>
-  %vInput = constant dense<[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0]> :
+  %vInput = constant dense<[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0]> :
     vector<${M}xf32>
   memref.store %vInput, %mvinput[] : memref<vector<${M}xf32>>
 
@@ -68,8 +79,8 @@ func @main() {
   
   %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
 
-  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [14] strides = [1] data = 
-  // CHECK: [8,  14,  20,  26,  32,  38,  44,  50,  56,  62,  68,  74,  80,  86]
+  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
+  // CHECK: [8,  14,  20,  26,  32,  38,  44,  50,  56,  62,  68,  74,  80,  86,  92,  98]
   call @print_memref_f32(%p) : (memref<*xf32>) -> ()
 
   %t_conv = subf %t_end, %t_start: f64

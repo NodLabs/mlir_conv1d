@@ -1,3 +1,10 @@
+// Tested on Intel(R) Xeon(R) CPU @ 2.00GHz w/ AVX512
+func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
+    attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+  call @compute_v1(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
+  return
+}
+
 #contraction_accesses = [
   affine_map<(n, k) -> (n, k)>,
   affine_map<(n, k) -> (k)>,
@@ -9,8 +16,19 @@
   iterator_types = ["parallel", "reduction"]
 }
 
-func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["noinline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+// Size 18 * 3 -> 16
+// ~4.6 GFlops/s when inlined
+// Iterations:        100
+// Instructions:      7500
+// Total Cycles:      4728
+// Total uOps:        8500
+
+// Dispatch Width:    6
+// uOps Per Cycle:    1.80
+// IPC:               1.59
+// Block RThroughput: 46.0
+func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
+  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
@@ -20,11 +38,10 @@ func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : m
   %2 = vector.shuffle %1, %1 
     [0, 1, 2, 1, 2, 3, 2, 3, 4, 3, 4, 5, 4, 5, 6, 5, 6, 7,
      6, 7, 8, 7, 8, 9, 8, 9, 10, 9, 10, 11, 10, 11, 12, 11,
-     12, 13, 12, 13, 14, 13, 14, 15] : vector<${M}xf32>, vector<${M}xf32>
-  %3 = vector.shape_cast %2 : vector<42xf32> to vector<${N}x${K}xf32>
+     12, 13, 12, 13, 14, 13, 14, 15, 14, 15, 16, 15, 16, 17] : vector<${M}xf32>, vector<${M}xf32>
+  %3 = vector.shape_cast %2 : vector<48xf32> to vector<${N}x${K}xf32>
   %v0 = vector.broadcast %f0 : f32 to vector<${N}xf32>
   %4 = vector.contract #contraction_trait %3, %0, %v0 : vector<${N}x${K}xf32>, vector<${K}xf32> into vector<${N}xf32>
-  // vector.print %4 : vector<${N}xf32>
   vector.transfer_write %4, %output[%c0] : vector<${N}xf32>, memref<${N}xf32>
   return
 }
@@ -54,7 +71,7 @@ func @main() {
   %iters = constant ${ITERS} : index
 
   %mvinput = memref.alloc() : memref<vector<${M}xf32>>
-  %vInput = constant dense<[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0]> :
+  %vInput = constant dense<[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0]> :
     vector<${M}xf32>
   memref.store %vInput, %mvinput[] : memref<vector<${M}xf32>>
 
@@ -78,8 +95,8 @@ func @main() {
   
   %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
 
-  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [14] strides = [1] data = 
-  // CHECK: [8,  14,  20,  26,  32,  38,  44,  50,  56,  62,  68,  74,  80,  86]
+  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
+  // CHECK: [8,  14,  20,  26,  32,  38,  44,  50,  56,  62,  68,  74,  80,  86,  92,  98]
   call @print_memref_f32(%p) : (memref<*xf32>) -> ()
 
   %t_conv = subf %t_end, %t_start: f64

@@ -4,8 +4,8 @@ import os
 import subprocess
 
 objdump_binary = 'objdump'
-option_choices = ['scalar', 'scalar_unrolled', 'multi_reduction', 
-                  'unrolled_contraction', 'shuffled_contraction_parallel_reduction', 'shuffled_contraction_reduction_parallel']
+option_choices = ['scalar', 'multi_reduction', 
+                  'shuffled_contraction_parallel_reduction', 'shuffled_contraction_reduction_parallel']
 mlir_opt_flags = [
   '-test-vector-multi-reduction-lowering-patterns',
   '-test-vector-contraction-conversion=vector-outerproduct=1',
@@ -92,8 +92,8 @@ def compile_and_run(args):
     # For now values are hardcoded because tests are written with size knowledge.
     # In the future we may want to expand this behavior.
     psed = subprocess.Popen(['sed'] + ['s/${ITERS}/1000000/g'] , stdin=pcat.stdout, stdout=subprocess.PIPE)
-    psed = subprocess.Popen(['sed'] + ['s/${M}/16/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
-    psed = subprocess.Popen(['sed'] + ['s/${N}/14/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${M}/18/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${N}/16/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
     psed = subprocess.Popen(['sed'] + ['s/${K}/3/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
     subprocess.run([mlir_opt] + mlir_opt_flags + ['-'], stdin=psed.stdout, stdout=f)
     pcat.stdout.close()
