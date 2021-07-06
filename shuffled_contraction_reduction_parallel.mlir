@@ -1,6 +1,6 @@
 // Tested on Intel(R) Xeon(R) CPU @ 2.00GHz w/ AVX512
 func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-    attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+    attributes { passthrough = ["inline", ["prefer-vector-width", "128"]]} {
   call @compute_v4(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
   return
 }
@@ -28,7 +28,7 @@ func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : m
 // IPC:               2.84
 // Block RThroughput: 5.5
 func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+  attributes { passthrough = ["inline", ["prefer-vector-width", "128"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
@@ -60,7 +60,7 @@ func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
 // IPC:               2.60
 // Block RThroughput: 5.5
 func @compute_v2(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+  attributes { passthrough = ["inline", ["prefer-vector-width", "128"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
@@ -101,7 +101,7 @@ func @compute_v2(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
 // IPC:               2.61
 // Block RThroughput: 5.0
 func @compute_v3(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+  attributes { passthrough = ["inline", ["prefer-vector-width", "128"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
@@ -143,7 +143,7 @@ func @compute_v3(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
 // IPC:               2.28
 // Block RThroughput: 5.0
 func @compute_v4(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+  attributes { passthrough = ["inline", ["prefer-vector-width", "128"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
