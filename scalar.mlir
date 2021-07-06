@@ -1,5 +1,5 @@
 // Size 18 * 3 -> 16
-// ~3.8 GFlops/s
+// ~3.8 GFlops/s when inlined
 // Iterations:        100
 // Instructions:      16400
 // Total Cycles:      4973
@@ -16,7 +16,7 @@ func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : m
   %c3 = constant ${K} : index
   %c14 = constant ${N} : index
   scf.for %i = %c0 to %c14 step %c1 {
-    %y = constant 0.0 : f32
+    %y = memref.load %output[%i] : memref<${N}xf32>
     %x = scf.for %j = %c0 to %c3 step %c1 iter_args(%acc = %y) -> (f32) {
       %idx = addi %i, %j : index
       %0 = memref.load %input[%idx] : memref<${M}xf32>
@@ -64,31 +64,30 @@ func @main() {
   memref.store %vFilter, %mvfilter[] : memref<vector<${K}xf32>>
 
   %mvoutput = memref.alloc() : memref<vector<${N}xf32>>
-  %vOutput = constant dense<0.0> : vector<${N}xf32>
+  %vOutput = constant dense<1.0> : vector<${N}xf32>
   memref.store %vOutput, %mvoutput[] : memref<vector<${N}xf32>>
   
   %input = vector.type_cast %mvinput: memref<vector<${M}xf32>> to memref<${M}xf32>
   %filter = vector.type_cast %mvfilter: memref<vector<${K}xf32>> to memref<${K}xf32>
   %output = vector.type_cast %mvoutput: memref<vector<${N}xf32>> to memref<${N}xf32>
+
   call @compute(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
+  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
+  // CHECK: [9,  15,  21,  27,  33,  39,  45,  51,  57,  63,  69,  75,  81,  87,  93,  99]
+  %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
+  call @print_memref_f32(%p) : (memref<*xf32>) -> ()
+
   %t_start = call @rtclock() : () -> f64
   scf.for %arg0 = %c0 to %iters step %c1 {
     call @compute(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
   }
   %t_end = call @rtclock() : () -> f64
-  
-  %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
-
-  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
-  // CHECK: [8,  14,  20,  26,  32,  38,  44,  50,  56,  62,  68,  74,  80,  86,  92,  98]
-  call @print_memref_f32(%p) : (memref<*xf32>) -> ()
 
   %t_conv = subf %t_end, %t_start: f64
   call @print_perf(%iters, %t_conv) : (index, f64) -> ()
 
   return
 }
-
 
 func private @rtclock() -> f64
 func private @print_memref_f32(%ptr : memref<*xf32>)

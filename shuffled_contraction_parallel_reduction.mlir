@@ -19,30 +19,32 @@ func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : m
 // Size 18 * 3 -> 16
 // ~4.6 GFlops/s when inlined
 // Iterations:        100
-// Instructions:      7500
-// Total Cycles:      4728
-// Total uOps:        8500
+// Instructions:      7300
+// Total Cycles:      4732
+// Total uOps:        8400
 
 // Dispatch Width:    6
-// uOps Per Cycle:    1.80
-// IPC:               1.59
+// uOps Per Cycle:    1.78
+// IPC:               1.54
 // Block RThroughput: 46.0
 func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
   attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
-  %f0 = constant 0.0 : f32
-  %0 = vector.transfer_read %filter[%c0], %f0 : memref<${K}xf32>, vector<${K}xf32>
-  %1 = vector.transfer_read %input[%c0], %f0 : memref<${M}xf32>, vector<${M}xf32>
-  %2 = vector.shuffle %1, %1 
+  %cf0 = constant 0.0 : f32
+
+  // %acc = constant dense<0.0> : vector<${N}xf32>
+  %acc = vector.transfer_read %output[%c0], %cf0 : memref<${N}xf32>, vector<${N}xf32>
+  %rhs = vector.transfer_read %filter[%c0], %cf0 : memref<${K}xf32>, vector<${K}xf32>
+  %lhs0 = vector.transfer_read %input[%c0], %cf0 : memref<${M}xf32>, vector<${M}xf32>
+  %lhs1 = vector.shuffle %lhs0, %lhs0
     [0, 1, 2, 1, 2, 3, 2, 3, 4, 3, 4, 5, 4, 5, 6, 5, 6, 7,
      6, 7, 8, 7, 8, 9, 8, 9, 10, 9, 10, 11, 10, 11, 12, 11,
      12, 13, 12, 13, 14, 13, 14, 15, 14, 15, 16, 15, 16, 17] : vector<${M}xf32>, vector<${M}xf32>
-  %3 = vector.shape_cast %2 : vector<48xf32> to vector<${N}x${K}xf32>
-  %v0 = vector.broadcast %f0 : f32 to vector<${N}xf32>
-  %4 = vector.contract #contraction_trait %3, %0, %v0 : vector<${N}x${K}xf32>, vector<${K}xf32> into vector<${N}xf32>
-  vector.transfer_write %4, %output[%c0] : vector<${N}xf32>, memref<${N}xf32>
+  %lhs = vector.shape_cast %lhs1 : vector<48xf32> to vector<${N}x${K}xf32>
+  %res = vector.contract #contraction_trait %lhs, %rhs, %acc : vector<${N}x${K}xf32>, vector<${K}xf32> into vector<${N}xf32>
+  vector.transfer_write %res, %output[%c0] : vector<${N}xf32>, memref<${N}xf32>
   return
 }
 
@@ -80,24 +82,24 @@ func @main() {
   memref.store %vFilter, %mvfilter[] : memref<vector<${K}xf32>>
 
   %mvoutput = memref.alloc() : memref<vector<${N}xf32>>
-  %vOutput = constant dense<0.0> : vector<${N}xf32>
+  %vOutput = constant dense<1.0> : vector<${N}xf32>
   memref.store %vOutput, %mvoutput[] : memref<vector<${N}xf32>>
   
   %input = vector.type_cast %mvinput: memref<vector<${M}xf32>> to memref<${M}xf32>
   %filter = vector.type_cast %mvfilter: memref<vector<${K}xf32>> to memref<${K}xf32>
   %output = vector.type_cast %mvoutput: memref<vector<${N}xf32>> to memref<${N}xf32>
+
   call @compute(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
+  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
+  // CHECK: [9,  15,  21,  27,  33,  39,  45,  51,  57,  63,  69,  75,  81,  87,  93,  99]
+  %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
+  call @print_memref_f32(%p) : (memref<*xf32>) -> ()
+
   %t_start = call @rtclock() : () -> f64
   scf.for %arg0 = %c0 to %iters step %c1 {
     call @compute(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
   }
   %t_end = call @rtclock() : () -> f64
-  
-  %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
-
-  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
-  // CHECK: [8,  14,  20,  26,  32,  38,  44,  50,  56,  62,  68,  74,  80,  86,  92,  98]
-  call @print_memref_f32(%p) : (memref<*xf32>) -> ()
 
   %t_conv = subf %t_end, %t_start: f64
   call @print_perf(%iters, %t_conv) : (index, f64) -> ()

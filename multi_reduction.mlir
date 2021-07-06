@@ -1,21 +1,21 @@
 // Tested on Intel(R) Xeon(R) CPU @ 2.00GHz w/ AVX512
 func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
     attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
-  call @compute_v4(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
+  call @compute_v1(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
   return
 }
 
 // Size 18 * 3 -> 16
-// ~35 GFlops/s when inlined
+// ~18 GFlops/s when inlined
 // Iterations:        100
 // Instructions:      1200
-// Total Cycles:      477
-// Total uOps:        2400
+// Total Cycles:      527
+// Total uOps:        2500
 
 // Dispatch Width:    6
-// uOps Per Cycle:    5.03
-// IPC:               2.52
-// Block RThroughput: 4.5
+// uOps Per Cycle:    4.74
+// IPC:               2.28
+// Block RThroughput: 5.0
 func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
   attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
@@ -25,6 +25,9 @@ func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
   %c1i32 = constant 1 : i32
   %c2i32 = constant 2 : i32
   %cf0 = constant 0.0 : f32
+
+  // %acc = constant dense<0.0> : vector<${N}xf32>
+  %acc = vector.transfer_read %output[%c0], %cf0 : memref<${N}xf32>, vector<${N}xf32>
 
   %f0 = memref.load %filter[%c0] : memref<${K}xf32>
   %f1 = memref.load %filter[%c1] : memref<${K}xf32>
@@ -38,7 +41,6 @@ func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
   %b1 = vector.broadcast %f1 : f32 to vector<${N}xf32>
   %b2 = vector.broadcast %f2 : f32 to vector<${N}xf32>
 
-  %acc = vector.broadcast %cf0 : f32 to vector<${N}xf32>
   %acc0 = vector.fma %i0, %b0, %acc : vector<${N}xf32>
   %acc1 = vector.fma %i1, %b1, %acc0 : vector<${N}xf32>
   %acc2 = vector.fma %i2, %b2, %acc1 : vector<${N}xf32>  
@@ -48,16 +50,16 @@ func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
 }
 
 // Size 18 * 3 -> 16
-// ~35 GFlops/s when inlined
+// ~18 GFlops/s when inlined
 // Iterations:        100
-// Instructions:      1100
-// Total Cycles:      474
-// Total uOps:        2300
+// Instructions:      1400
+// Total Cycles:      530
+// Total uOps:        2600
 
 // Dispatch Width:    6
-// uOps Per Cycle:    4.85
-// IPC:               2.32
-// Block RThroughput: 4.5
+// uOps Per Cycle:    4.91
+// IPC:               2.64
+// Block RThroughput: 5.0
 func @compute_v2(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
   attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
@@ -68,46 +70,8 @@ func @compute_v2(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
   %c2i32 = constant 2 : i32
   %cf0 = constant 0.0 : f32
 
-  %f0 = memref.load %filter[%c0] : memref<${K}xf32>
-  %f1 = memref.load %filter[%c1] : memref<${K}xf32>
-  %f2 = memref.load %filter[%c2] : memref<${K}xf32>
-
-  %i0 = vector.transfer_read %input[%c0], %cf0 : memref<${M}xf32>, vector<${N}xf32>
-  %i1 = vector.transfer_read %input[%c1], %cf0 : memref<${M}xf32>, vector<${N}xf32>
-  %i2 = vector.transfer_read %input[%c2], %cf0 : memref<${M}xf32>, vector<${N}xf32>
-
-  %b0 = vector.broadcast %f0 : f32 to vector<${N}xf32>
-  %b1 = vector.broadcast %f1 : f32 to vector<${N}xf32>
-  %b2 = vector.broadcast %f2 : f32 to vector<${N}xf32>
-
-  %acc0 = mulf %i0, %b0 : vector<${N}xf32>
-  %acc1 = vector.fma %i1, %b1, %acc0 : vector<${N}xf32>
-  %acc2 = vector.fma %i2, %b2, %acc1 : vector<${N}xf32>  
-  vector.store %acc2, %output[%c0] : memref<${N}xf32>, vector<${N}xf32>
-
-  return
-}
-
-// Size 18 * 3 -> 16
-// ~35 GFlops/s when inlined
-// Iterations:        100
-// Instructions:      1500
-// Total Cycles:      531
-// Total uOps:        2600
-
-// Dispatch Width:    6
-// uOps Per Cycle:    4.90
-// IPC:               2.82
-// Block RThroughput: 4.5
-func @compute_v3(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
-  %c0 = constant 0 : index
-  %c1 = constant 1 : index
-  %c2 = constant 2 : index
-  %c0i32 = constant 0 : i32
-  %c1i32 = constant 1 : i32
-  %c2i32 = constant 2 : i32
-  %cf0 = constant 0.0 : f32
+  // %acc = constant dense<0.0> : vector<${N}xf32>
+  %acc = vector.transfer_read %output[%c0], %cf0 : memref<${N}xf32>, vector<${N}xf32>
 
   %f = vector.transfer_read %filter[%c0], %cf0 : memref<${K}xf32>, vector<${K}xf32>
   %f0 = vector.extractelement %f[%c0i32 : i32] : vector<${K}xf32>
@@ -122,7 +86,6 @@ func @compute_v3(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
   %b1 = vector.broadcast %f1 : f32 to vector<${N}xf32>
   %b2 = vector.broadcast %f2 : f32 to vector<${N}xf32>
 
-  %acc = vector.broadcast %cf0 : f32 to vector<${N}xf32>
   %acc0 = vector.fma %i0, %b0, %acc : vector<${N}xf32>
   %acc1 = vector.fma %i1, %b1, %acc0 : vector<${N}xf32>
   %acc2 = vector.fma %i2, %b2, %acc1 : vector<${N}xf32>  
@@ -132,23 +95,25 @@ func @compute_v3(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
 }
 
 // Size 18 * 3 -> 16
-// ~42 GFlops/s when inlined
+// ~22 GFlops/s when inlined
 // Iterations:        100
-// Instructions:      2300
-// Total Cycles:      628
-// Total uOps:        3400
+// Instructions:      2100
+// Total Cycles:      632
+// Total uOps:        3300
 
 // Dispatch Width:    6
-// uOps Per Cycle:    5.41
-// IPC:               3.66
-// Block RThroughput: 5.7
-func @compute_v4(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
+// uOps Per Cycle:    5.22
+// IPC:               3.32
+// Block RThroughput: 5.5
+func @compute_v3(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
   attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
   %cf0 = constant 0.0 : f32
 
+  // %acc = constant dense<0.0> : vector<${N}xf32>
+  %acc = vector.transfer_read %output[%c0], %cf0 : memref<${N}xf32>, vector<${N}xf32>
   %in0 = vector.transfer_read %input[%c0], %cf0 : memref<${M}xf32>, vector<${M}xf32>
   %f = vector.transfer_read %filter[%c0], %cf0 : memref<${K}xf32>, vector<${K}xf32>
 
@@ -169,32 +134,35 @@ func @compute_v4(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
   %ve0 = vector.extract %v5[0] : vector<${K}x${N}xf32>
   %ve1 = vector.extract %v5[1] : vector<${K}x${N}xf32>
   %ve2 = vector.extract %v5[2] : vector<${K}x${N}xf32>
-  %res0 = addf %ve0, %ve1 : vector<${N}xf32>
-  %res1 = addf %res0, %ve2 : vector<${N}xf32>
+  %res0 = addf %acc, %ve0 : vector<${N}xf32>
+  %res1 = addf %ve1, %ve2 : vector<${N}xf32>
+  %res  = addf %res0, %res1 : vector<${N}xf32>
   
-  vector.transfer_write %res1, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
+  vector.transfer_write %res, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
 
   return
 }
 
 // Size 18 * 3 -> 16
-// ~43 GFlops/s when inlined
+// ~21 GFlops/s when inlined
 // Iterations:        100
-// Instructions:      1800
-// Total Cycles:      533
+// Instructions:      1700
+// Total Cycles:      630
 // Total uOps:        3000
 
 // Dispatch Width:    6
-// uOps Per Cycle:    5.63
-// IPC:               3.38
-// Block RThroughput: 5.0
-func @compute_v5(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
+// uOps Per Cycle:    4.76
+// IPC:               2.70
+// Block RThroughput: 5.5
+func @compute_v4(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
   attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
   %cf0 = constant 0.0 : f32
 
+  // %acc = constant dense<0.0> : vector<${N}xf32>
+  %acc = vector.transfer_read %output[%c0], %cf0 : memref<${N}xf32>, vector<${N}xf32>
   %in0 = vector.transfer_read %input[%c0], %cf0 : memref<${M}xf32>, vector<${M}xf32>
 
   %f0 = memref.load %filter[%c0] : memref<${K}xf32>
@@ -221,32 +189,35 @@ func @compute_v5(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
   %ve0 = vector.extract %v5[0] : vector<${K}x${N}xf32>
   %ve1 = vector.extract %v5[1] : vector<${K}x${N}xf32>
   %ve2 = vector.extract %v5[2] : vector<${K}x${N}xf32>
-  %res0 = addf %ve0, %ve1 : vector<${N}xf32>
-  %res1 = addf %res0, %ve2 : vector<${N}xf32>
+  %res0 = addf %acc, %ve0 : vector<${N}xf32>
+  %res1 = addf %ve1, %ve2 : vector<${N}xf32>
+  %res  = addf %res0, %res1 : vector<${N}xf32>
   
-  vector.transfer_write %res1, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
+  vector.transfer_write %res, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
 
   return
 }
 
 // Size 18 * 3 -> 16
-// ~43 GFlops/s when inlined
+// ~20-23 GFlops/s when inlined
 // Iterations:        100
-// Instructions:      2300
-// Total Cycles:      628
-// Total uOps:        3400
+// Instructions:      2100
+// Total Cycles:      632
+// Total uOps:        3300
 
 // Dispatch Width:    6
-// uOps Per Cycle:    5.41
-// IPC:               3.66
-// Block RThroughput: 5.7
-func @compute_v6(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
+// uOps Per Cycle:    5.22
+// IPC:               3.32
+// Block RThroughput: 5.5
+func @compute_v5(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
   attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
   %cf0 = constant 0.0 : f32
 
+  // %acc = constant dense<0.0> : vector<${N}xf32>
+  %acc = vector.transfer_read %output[%c0], %cf0 : memref<${N}xf32>, vector<${N}xf32>
   %f = vector.transfer_read %filter[%c0], %cf0 : memref<${K}xf32>, vector<${K}xf32>
   %in0 = vector.transfer_read %input[%c0], %cf0 : memref<${M}xf32>, vector<${M}xf32>
 
@@ -266,32 +237,35 @@ func @compute_v6(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
   %ve0 = vector.extract %v5[0] : vector<${K}x${N}xf32>
   %ve1 = vector.extract %v5[1] : vector<${K}x${N}xf32>
   %ve2 = vector.extract %v5[2] : vector<${K}x${N}xf32>
-  %res0 = addf %ve0, %ve1 : vector<${N}xf32>
-  %res1 = addf %res0, %ve2 : vector<${N}xf32>
+  %res0 = addf %acc, %ve0 : vector<${N}xf32>
+  %res1 = addf %ve1, %ve2 : vector<${N}xf32>
+  %res  = addf %res0, %res1 : vector<${N}xf32>
 
-  vector.transfer_write %res1, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
+  vector.transfer_write %res, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
 
   return
 }
 
 // Size 18 * 3 -> 16
-// ~3 GFlops/s when inlined
+// ~3.5 GFlops/s when inlined
 // Iterations:        100
-// Instructions:      12500
-// Total Cycles:      6230
-// Total uOps:        13700
+// Instructions:      12800
+// Total Cycles:      6734
+// Total uOps:        14000
 
 // Dispatch Width:    6
-// uOps Per Cycle:    2.20
-// IPC:               2.01
-// Block RThroughput: 62.0
-func @compute_v7(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
+// uOps Per Cycle:    2.08
+// IPC:               1.90
+// Block RThroughput: 64.0
+func @compute_v6(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
   attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
   %cf0 = constant 0.0 : f32
 
+  // %acc = constant dense<0.0> : vector<${N}xf32>
+  %acc = vector.transfer_read %output[%c0], %cf0 : memref<${N}xf32>, vector<${N}xf32>
   %f = vector.transfer_read %filter[%c0], %cf0 : memref<${K}xf32>, vector<${K}xf32>
   %in0 = vector.transfer_read %input[%c0], %cf0 : memref<${M}xf32>, vector<${M}xf32>
 
@@ -307,8 +281,9 @@ func @compute_v7(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
   // %v5 = vector.multi_reduction #vector.kind<mul>, %v4 [0] : vector<2x${K}x${N}xf32> to vector<${K}x${N}xf32>
   %v5 = mulf %in, %7 : vector<${K}x${N}xf32>
 
-  %res1 = vector.multi_reduction #vector.kind<add>, %v5 [0] : vector<${K}x${N}xf32> to vector<${N}xf32>
-  vector.transfer_write %res1, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
+  %res0 = vector.multi_reduction #vector.kind<add>, %v5 [0] : vector<${K}x${N}xf32> to vector<${N}xf32>
+  %res  = addf %res0, %acc : vector<${N}xf32>
+  vector.transfer_write %res, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
 
   return
 }
@@ -316,26 +291,19 @@ func @compute_v7(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
 // This one is so bad it does not want to inline even when told so.
 // Size 18 * 3 -> 16
 // ~1.9 GFlops/s
-// Manually extracting assembly fomr compute_v8 yields:
-// Iterations:        100
-// Instructions:      18900
-// Total Cycles:      9123
-// Total uOps:        24100
-
-// Dispatch Width:    6
-// uOps Per Cycle:    2.64
-// IPC:               2.07
-// Block RThroughput: 67.0
-func @compute_v8(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
+func @compute_v7(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
   attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
-  %f0 = constant 0.0 : f32
+  %cf0 = constant 0.0 : f32
+  
+  // %acc = constant dense<0.0> : vector<${N}xf32>
+  %acc = vector.transfer_read %output[%c0], %cf0 : memref<${N}xf32>, vector<${N}xf32>
 
-  %z0 = vector.broadcast %f0 : f32 to vector<${M}xf32>
-  %v0 = vector.broadcast %f0 : f32 to vector<2x${K}x${M}xf32>
-  %1 = vector.transfer_read %filter[%c0], %f0 : memref<${K}xf32>, vector<${K}xf32>
+  %z0 = vector.broadcast %cf0 : f32 to vector<${M}xf32>
+  %v0 = vector.broadcast %cf0 : f32 to vector<2x${K}x${M}xf32>
+  %1 = vector.transfer_read %filter[%c0], %cf0 : memref<${K}xf32>, vector<${K}xf32>
   
   %2 = vector.constant_mask [${N}] : vector<${M}xi1>
 
@@ -357,7 +325,8 @@ func @compute_v8(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output 
 
   %v7 = vector.extract_strided_slice %v6 {offsets = [0], sizes=[${N}], strides=[1]} : vector<${M}xf32> to vector<${N}xf32>
   
-  vector.transfer_write %v7, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
+  %res  = addf %v7, %acc : vector<${N}xf32>
+  vector.transfer_write %res, %output[%c0] : vector<${N}xf32> , memref<${N}xf32>
 
   return
 }
@@ -396,24 +365,24 @@ func @main() {
   memref.store %vFilter, %mvfilter[] : memref<vector<${K}xf32>>
 
   %mvoutput = memref.alloc() : memref<vector<${N}xf32>>
-  %vOutput = constant dense<0.0> : vector<${N}xf32>
+  %vOutput = constant dense<1.0> : vector<${N}xf32>
   memref.store %vOutput, %mvoutput[] : memref<vector<${N}xf32>>
   
   %input = vector.type_cast %mvinput: memref<vector<${M}xf32>> to memref<${M}xf32>
   %filter = vector.type_cast %mvfilter: memref<vector<${K}xf32>> to memref<${K}xf32>
   %output = vector.type_cast %mvoutput: memref<vector<${N}xf32>> to memref<${N}xf32>
+
   call @compute(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
+  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
+  // CHECK: [9,  15,  21,  27,  33,  39,  45,  51,  57,  63,  69,  75,  81,  87,  93,  99]
+  %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
+  call @print_memref_f32(%p) : (memref<*xf32>) -> ()
+
   %t_start = call @rtclock() : () -> f64
   scf.for %arg0 = %c0 to %iters step %c1 {
     call @compute(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
   }
   %t_end = call @rtclock() : () -> f64
-  
-  %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
-
-  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
-  // CHECK: [8,  14,  20,  26,  32,  38,  44,  50,  56,  62,  68,  74,  80,  86,  92,  98]
-  call @print_memref_f32(%p) : (memref<*xf32>) -> ()
 
   %t_conv = subf %t_end, %t_start: f64
   call @print_perf(%iters, %t_conv) : (index, f64) -> ()
