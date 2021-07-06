@@ -33,7 +33,7 @@ opt_flags_armv8 = [
   '-O3',
   '-march=arm64',
 ]
-opt_flags = opt_flags_skylake_avx512
+opt_flags = opt_flags_armv8
 
 llc_flags_common = [
   '-O3',
@@ -48,7 +48,7 @@ llc_flags_skylake_avx512 = [
 llc_flags_armv8 = [
   '-march=arm64',
 ]
-llc_flags = llc_flags_common + llc_flags_skylake_avx512
+llc_flags = llc_flags_common + llc_flags_armv8
 
 
 # Note: llvm-mca requires a processor to run properly,
@@ -67,7 +67,7 @@ llvm_mca_flags_armv8 = [
   '-march=arm64',
   '-mcpu=cortex-a34',
 ]
-llvm_mca_flags = llvm_mca_common + llvm_mca_flags_skylake_avx512
+llvm_mca_flags = llvm_mca_common + llvm_mca_flags_armv8
 
 objdump_flags = [
     '-d', 
@@ -170,7 +170,7 @@ def run(args):
     mlir_file, mlir_outfile = compile_to_llvm_dialect(args)
     obj_file = compile_to_object(args, mlir_outfile)
     objdump_and_llvm_mca(args, obj_file)
-    run_and_check(args, mlir_file, mlir_outfile)
+    # run_and_check(args, mlir_file, mlir_outfile)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@
 // IPC:               3.30
 // Block RThroughput: 49.5
 func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+  attributes { passthrough = ["inline", ["prefer-vector-width", "128"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c3 = constant ${K} : index
