@@ -16,7 +16,6 @@ llvm-mca.
 
 Currently, the supported options are
 - scalar
-- scalar_unrolled
 - multi_reduction
-- unrolled_contraction
-- shuffled_contraction
+- shuffled_contraction_parallel_reduction
+- shuffled_contraction_reduction_parallel
