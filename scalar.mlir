@@ -1,11 +1,22 @@
-func @conv1d_scalar(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["noinline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
+// Size 18 * 3 -> 16
+// ~3.8 GFlops/s when inlined
+// Iterations:        100
+// Instructions:      16400
+// Total Cycles:      4973
+// Total uOps:        23000
+
+// Dispatch Width:    6
+// uOps Per Cycle:    4.62
+// IPC:               3.30
+// Block RThroughput: 49.5
+func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
+  attributes { passthrough = ["inline", ["target-cpu", "skylake-avx512"], ["prefer-vector-width", "512"]]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c3 = constant ${K} : index
   %c14 = constant ${N} : index
   scf.for %i = %c0 to %c14 step %c1 {
-    %y = constant 0.0 : f32
+    %y = memref.load %output[%i] : memref<${N}xf32>
     %x = scf.for %j = %c0 to %c3 step %c1 iter_args(%acc = %y) -> (f32) {
       %idx = addi %i, %j : index
       %0 = memref.load %input[%idx] : memref<${M}xf32>
@@ -20,14 +31,20 @@ func @conv1d_scalar(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %outp
 }
 
 func @print_perf(%iters: index, %total_time: f64) {
+  %c1 = constant 1: index
   %cF = constant ${K} : index
   %cO = constant ${N} : index
-  %flops_per_iter = muli %cF, %cO : index
+
+  // For each output point we have ${K} muls and ${K-1} adds.
+  %cFm1 = subi %cF, %c1 : index
+  %flops_filter = addi %cF, %cFm1 : index
+  %flops_per_iter = muli %cO, %flops_filter : index
+
   %flops = muli %iters, %flops_per_iter : index
   %flops_i64 = index_cast %flops : index to i64
   %flops_f = sitofp %flops_i64 : i64 to f64
   %flops_per_s = divf %flops_f, %total_time : f64
-  vector.print %total_time : f64
+  // vector.print %total_time : f64
   vector.print %flops_per_s : f64
   return
 }
@@ -35,32 +52,40 @@ func @print_perf(%iters: index, %total_time: f64) {
 func @main() {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
-  %c2 = constant 2 : index
-  %f1 = constant 0.02914738655090332 : f32
-  %f2 = constant 0.8740115165710449 : f32
-  %f3 = constant -0.858701229095459 : f32
-  %f4 = constant 1.0533758 : f32
   %iters = constant ${ITERS} : index
-  %input = memref.alloc() : memref<${M}xf32>
-  %filter = memref.alloc() : memref<${K}xf32>
-  %output = memref.alloc() : memref<${N}xf32>
-  memref.store %f1, %filter[%c0] : memref<${K}xf32>
-  memref.store %f2, %filter[%c1] : memref<${K}xf32>
-  memref.store %f3, %filter[%c2] : memref<${K}xf32>
-  linalg.fill(%f4, %input) : f32, memref<${M}xf32>
-  scf.for %arg0 = %c0 to %iters step %c1 {
-    call @conv1d_scalar(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
-  }
+
+  %mvinput = memref.alloc() : memref<vector<${M}xf32>>
+  %vInput = constant dense<[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0]> :
+    vector<${M}xf32>
+  memref.store %vInput, %mvinput[] : memref<vector<${M}xf32>>
+
+  %mvfilter = memref.alloc() : memref<vector<${K}xf32>>
+  %vFilter = constant dense<[1.0, 2.0, 3.0]> : vector<${K}xf32>
+  memref.store %vFilter, %mvfilter[] : memref<vector<${K}xf32>>
+
+  %mvoutput = memref.alloc() : memref<vector<${N}xf32>>
+  %vOutput = constant dense<1.0> : vector<${N}xf32>
+  memref.store %vOutput, %mvoutput[] : memref<vector<${N}xf32>>
+  
+  %input = vector.type_cast %mvinput: memref<vector<${M}xf32>> to memref<${M}xf32>
+  %filter = vector.type_cast %mvfilter: memref<vector<${K}xf32>> to memref<${K}xf32>
+  %output = vector.type_cast %mvoutput: memref<vector<${N}xf32>> to memref<${N}xf32>
+
+  call @compute(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
+  // CHECK: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [16] strides = [1] data = 
+  // CHECK: [9,  15,  21,  27,  33,  39,  45,  51,  57,  63,  69,  75,  81,  87,  93,  99]
+  %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
+  call @print_memref_f32(%p) : (memref<*xf32>) -> ()
+
   %t_start = call @rtclock() : () -> f64
   scf.for %arg0 = %c0 to %iters step %c1 {
-    call @conv1d_scalar(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
+    call @compute(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
   }
   %t_end = call @rtclock() : () -> f64
+
   %t_conv = subf %t_end, %t_start: f64
   call @print_perf(%iters, %t_conv) : (index, f64) -> ()
 
-  %p = memref.cast %output : memref<${N}xf32> to memref<*xf32>
-  call @print_memref_f32(%p) : (memref<*xf32>) -> ()
   return
 }
 
