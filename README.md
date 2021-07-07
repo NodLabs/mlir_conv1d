@@ -11,11 +11,20 @@ llvm-mca.
 ## How to run
 
 ```
-./run.py -m [path to mlir build dir] -o [option name]
+./run.py -m [path to mlir build dir] -o [option name] [-v vector_width] [-a arch] [-c cpu]
 ```
 
-Currently, the supported options are
-- scalar
-- multi_reduction
-- shuffled_contraction_parallel_reduction
-- shuffled_contraction_reduction_parallel
+Examples:
+```
+./run.py -m ${LLVM_BUILD_DIR} -o multi_reduction -v 128
+./run.py -m ${LLVM_BUILD_DIR} -o scalar -a arm64 -c cortex-a53
+```
+
+To see the supported options:
+```
+./run.py --help
+```
+
+For now, it is assumed that `-a x64_64` (default) is native compilation, in which case an actual run 
+is triggered to check and benchmark the implementation.
+Other arch, e.g. `-a arm64` is considered cross-compilation and stops after llvm-mca.

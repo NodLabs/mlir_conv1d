@@ -3,8 +3,28 @@ import argparse
 import os
 import subprocess
 
-option_choices = ['scalar', 'multi_reduction', 
-                  'shuffled_contraction_parallel_reduction', 'shuffled_contraction_reduction_parallel']
+option_choices = [
+  'scalar', 
+  'multi_reduction', 
+  'shuffled_contraction_parallel_reduction', 
+  'shuffled_contraction_reduction_parallel'
+]
+
+cpu_choices = [
+  'nehalem',
+  'sandybridge',
+  'ivybridge',
+  'haswell',
+  'skylake-avx512',
+  'cortex-a34',
+  'cortex-a53',
+  'cortex-a78'
+]
+
+arch_choices = [
+  'x86-64',
+  'arm64'
+]
 
 mlir_opt_flags = [
   '-test-vector-multi-reduction-lowering-patterns',
@@ -24,50 +44,29 @@ mlir_cpu_runner_run_flags = lambda build_dir : [
   f'-shared-libs={build_dir}/lib/libmlir_c_runner_utils.so,{build_dir}/lib/libmlir_runner_utils.so',
 ]
 
-opt_flags_skylake_avx512 = [
+opt_flags =  lambda args : [
   '-O3',
-  '-march=x64-64',
-  '-mcpu=skylake-avx512',
+  f'-march={args.a}',
+  f'-mcpu={args.c}',
 ]
-opt_flags_armv8 = [
-  '-O3',
-  '-march=arm64',
-]
-opt_flags = opt_flags_armv8
 
-llc_flags_common = [
+llc_flags = lambda args : [
   '-O3',
   '--function-sections',# Important to isolate functions and pass to objdump
-  '-filetype=obj'
+  '-filetype=obj',
+  f'-march={args.a}',
+  f'-mcpu={args.c}',
 ]
-llc_flags_skylake_avx512 = [
-  # For some reason, x86-64 does not work ...
-  #'-march=x64-64',
-  '-mcpu=skylake-avx512',
-]
-llc_flags_armv8 = [
-  '-march=arm64',
-]
-llc_flags = llc_flags_common + llc_flags_armv8
-
 
 # Note: llvm-mca requires a processor to run properly,
 # otherwise it will default to the host processor and make a mess.
-llvm_mca_common = [
+llvm_mca_flags = lambda args : [
     '--all-stats',
     '--timeline',
-    '--bottleneck-analysis'
-  ]
-llvm_mca_flags_skylake_avx512 = [
-  # For some reason, x86-64 does not work ...
-  #'-march=x64-64',
-  '-mcpu=skylake-avx512',
+    '--bottleneck-analysis',
+    f'-march={args.a}',
+    f'-mcpu={args.c}',
 ]
-llvm_mca_flags_armv8 = [
-  '-march=arm64',
-  '-mcpu=cortex-a34',
-]
-llvm_mca_flags = llvm_mca_common + llvm_mca_flags_armv8
 
 objdump_flags = [
     '-d', 
@@ -80,7 +79,7 @@ objdump_flags = [
 
 def objdump_and_llvm_mca(args, obj_file):
 
-    # Run llvm-objdump to produce asm.
+    # Run llvm-objdump to produce the interesting portion of asm.
     asm_file = args.o + '.S'
     f = open(asm_file, 'w')
     objdump = os.path.join(args.m, 'bin/llvm-objdump')
@@ -90,10 +89,16 @@ def objdump_and_llvm_mca(args, obj_file):
     p.wait()
     f.close()
 
+    # Run llvm-objdump to produce the full asm for debugging.
+    full_asm_file = args.o + '-full.S'
+    f = open(full_asm_file, 'w')
+    subprocess.run([objdump] + ['-d', obj_file], stdout=f)
+    f.close()
+    
     # Run llvm-mca on asm
     llvm_mca_out_file = args.o + '_llvm_mca.out'
     llvm_mca = os.path.join(args.m, 'bin/llvm-mca')
-    p = subprocess.run([llvm_mca] + llvm_mca_flags + [asm_file] + ['-o'] + [llvm_mca_out_file])
+    p = subprocess.run([llvm_mca] + llvm_mca_flags(args) + [asm_file] + ['-o'] + [llvm_mca_out_file])
     print(" ".join(p.args))
     
     # Dump 10 lines of llvm-mca.
@@ -116,6 +121,9 @@ def compile_to_llvm_dialect(args):
     psed = subprocess.Popen(['sed'] + ['s/${ITERS}/1000000/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
     psed = subprocess.Popen(['sed'] + ['s/${M}/18/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
     psed = subprocess.Popen(['sed'] + ['s/${N}/16/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${TARGET_CPU}/, ["target-cpu", "' + args.c + '"]/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${PREFER_VECTOR_WIDTH}/, ["prefer-vector-width", "' + args.v + '"]/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${N}/16/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
     psed = subprocess.Popen(['sed'] + ['s/${K}/3/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
 
     p = subprocess.run([mlir_opt] + mlir_opt_flags + ['-o'] + [mlir_outfile], stdin=psed.stdout)
@@ -132,13 +140,13 @@ def compile_to_object(args, mlir_outfile):
 
     opt = os.path.join(args.m, 'bin/opt')
     prun = subprocess.Popen(['cat'] + [ll_file], stdout=subprocess.PIPE)
-    prun = subprocess.Popen([opt] + opt_flags, stdin=prun.stdout, stdout=subprocess.PIPE)
+    prun = subprocess.Popen([opt] + opt_flags(args), stdin=prun.stdout, stdout=subprocess.PIPE)
     print(" ".join(prun.args))
 
     obj_file = args.o + '.o'
     f = open(obj_file, 'w')
     llc = os.path.join(args.m, 'bin/llc')
-    prun = subprocess.Popen([llc] + llc_flags + ['-o'] + [obj_file], stdin=prun.stdout, stdout=f)
+    prun = subprocess.Popen([llc] + llc_flags(args) + ['-o'] + [obj_file], stdin=prun.stdout, stdout=f)
     print(" ".join(prun.args))
     prun.wait()
     f.close()
@@ -170,7 +178,8 @@ def run(args):
     mlir_file, mlir_outfile = compile_to_llvm_dialect(args)
     obj_file = compile_to_object(args, mlir_outfile)
     objdump_and_llvm_mca(args, obj_file)
-    # run_and_check(args, mlir_file, mlir_outfile)
+    if args.a == 'x86-64' :
+      run_and_check(args, mlir_file, mlir_outfile)
 
 
 if __name__ == "__main__":
@@ -178,7 +187,12 @@ if __name__ == "__main__":
     parser.add_argument('-m', '-mlir_build_dir', help='path to mlir build dir', required=True)
     parser.add_argument('-o', '-option', default='scalar', choices=option_choices,
             help='which conv1d vectorization strategy to evaluate')
-    parser.add_argument('-llvm_mca', default='llvm-mca', help='llvm-mca binary to use for profiling')
+    parser.add_argument('-v', '-vector_width', default='512', 
+            help='preferred vector vector_width to inject in the MLIR examples')
+    parser.add_argument('-c', '-cpu', default='skylake-avx512', choices=cpu_choices,
+            help='cpu to compile for')
+    parser.add_argument('-a', '-arch', default='x86-64', choices=arch_choices,
+            help='arch to compile for')
     args = parser.parse_args()
     args.o = 'outputs/' + args.o + '/' + args.o
     run(args)

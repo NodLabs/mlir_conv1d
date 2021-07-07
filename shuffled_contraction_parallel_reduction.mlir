@@ -1,6 +1,6 @@
 // Tested on Intel(R) Xeon(R) CPU @ 2.00GHz w/ AVX512
 func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-    attributes { passthrough = ["inline", ["prefer-vector-width", "128"]]} {
+    attributes { passthrough = ["noinline" ${TARGET_CPU} ${PREFER_VECTOR_WIDTH}]} {
   call @compute_v1(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
   return
 }
@@ -28,7 +28,7 @@ func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : m
 // IPC:               1.54
 // Block RThroughput: 46.0
 func @compute_v1(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
-  attributes { passthrough = ["inline", ["prefer-vector-width", "128"]]} {
+  attributes { passthrough = ["inline" ${TARGET_CPU} ${PREFER_VECTOR_WIDTH}]} {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c2 = constant 2 : index
