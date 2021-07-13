@@ -32,6 +32,7 @@ mlir_opt_flags = [
   '-canonicalize',
   '-convert-linalg-to-loops',
   '-convert-vector-to-llvm',
+  '-convert-memref-to-llvm',
   '-convert-scf-to-std',
   '-convert-std-to-llvm',
   '-canonicalize',
