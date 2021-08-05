@@ -105,11 +105,27 @@ def objdump_and_llvm_mca(args, obj_file):
     # Dump 10 lines of llvm-mca.
     subprocess.run(['head', '-n', '10', llvm_mca_out_file])
 
+def is_valid_fn(fn, mlir_file):
+    with open(mlir_file, 'r') as f:
+        data = f.read()
+    return 'compute_v' + fn in data
 
 def compile_to_llvm_dialect(args):
+
+    mlir_file = os.path.basename(args.o + '.mlir')
+    # Check if fn is valid, if specified
+    if args.f is not None:
+        if not is_valid_fn(args.f, mlir_file):
+            raise ValueError(f"compute_v{args.f} is not defined in {mlir_file}")
+    else:
+        # Set default option to 'compute_v1'
+        args.f = 1
+
+    if 'scalar' not in args.o:
+        print(f"Running compute_v{args.f} in {mlir_file}")
+
     # Run mlir-opt.
     mlir_opt = os.path.join(args.m, 'bin/mlir-opt')
-    mlir_file = os.path.basename(args.o + '.mlir')
     mlir_outfile = args.o + '-mlir.out'
 
     p = subprocess.Popen(['mkdir'] + ['-p'] + [os.path.dirname(mlir_outfile)])
@@ -126,6 +142,7 @@ def compile_to_llvm_dialect(args):
     psed = subprocess.Popen(['sed'] + ['s/${PREFER_VECTOR_WIDTH}/, ["prefer-vector-width", "' + args.v + '"]/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
     psed = subprocess.Popen(['sed'] + ['s/${N}/16/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
     psed = subprocess.Popen(['sed'] + ['s/${K}/3/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
+    psed = subprocess.Popen(['sed'] + ['s/${FN}/' + f'{args.f}/g'] , stdin=psed.stdout, stdout=subprocess.PIPE)
 
     p = subprocess.run([mlir_opt] + mlir_opt_flags + ['-o'] + [mlir_outfile], stdin=psed.stdout)
     print(" ".join(p.args))
@@ -194,6 +211,7 @@ if __name__ == "__main__":
             help='cpu to compile for')
     parser.add_argument('-a', '-arch', default='x86-64', choices=arch_choices,
             help='arch to compile for')
+    parser.add_argument('-f', '-fn', help='specifies which compute_v* function to run')
     args = parser.parse_args()
     args.o = 'outputs/' + args.o + '/' + args.o
     run(args)

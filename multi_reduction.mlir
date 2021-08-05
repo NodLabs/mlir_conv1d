@@ -1,7 +1,7 @@
 // Tested on Intel(R) Xeon(R) CPU @ 2.00GHz w/ AVX512
 func @compute(%input : memref<${M}xf32>, %filter : memref<${K}xf32>, %output : memref<${N}xf32>) 
     attributes { passthrough = ["inline" ${TARGET_CPU} ${PREFER_VECTOR_WIDTH}]} {
-  call @compute_v1(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
+  call @compute_v${FN}(%input, %filter, %output) : (memref<${M}xf32>, memref<${K}xf32>, memref<${N}xf32>) -> ()
   return
 }
 
